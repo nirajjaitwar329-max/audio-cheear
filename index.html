@@ -1,1 +1,166 @@
- 
+ <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Circular Audio Visualizer</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #111; /* Dark background */
+            color: #fff;
+            font-family: sans-serif;
+        }
+
+        #visualizer-canvas {
+            border: 2px solid #555;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.5); /* Glowing effect */
+            background-color: #000;
+        }
+
+        #controls {
+            margin-bottom: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #audio-file {
+            padding: 10px;
+            border-radius: 5px;
+            background-color: #222;
+            color: #fff;
+            border: 1px solid #444;
+        }
+
+        #message {
+            margin-top: 10px;
+            color: #00ffff;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="controls">
+        <h2>Circular Audio Visualizer</h2>
+        <input type="file" id="audio-file" accept="audio/*">
+        <p id="message">Please upload an audio file to begin.</p>
+    </div>
+
+    <canvas id="visualizer-canvas" width="600" height="600"></canvas>
+
+    <script>
+        // --- Web Audio and Canvas Setup ---
+
+        const audioFileInput = document.getElementById('audio-file');
+        const canvas = document.getElementById('visualizer-canvas');
+        const ctx = canvas.getContext('2d');
+        const message = document.getElementById('message');
+
+        let audioContext;
+        let analyser;
+        let source;
+        let audio;
+
+        // --- Audio Context Initialization ---
+
+        audioFileInput.addEventListener('change', function(e) {
+            const files = e.target.files;
+            if (files.length === 0) return;
+
+            // 1. Create a new AudioContext (or resume an existing one)
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+
+            // 2. Load the audio file
+            if (audio) {
+                audio.pause();
+                audio.remove();
+            }
+            audio = new Audio(URL.createObjectURL(files[0]));
+            audio.controls = false;
+            audio.loop = true; // Loop the music
+
+            // 3. Create media element source
+            source = audioContext.createMediaElementSource(audio);
+
+            // 4. Create the Analyser Node
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256; // Smaller size for more distinct bars (128 bars)
+            const bufferLength = analyser.frequencyBinCount; // 128
+            const dataArray = new Uint8Array(bufferLength);
+            
+            // 5. Connect the nodes: Source -> Analyser -> Speakers
+            source.connect(analyser);
+            analyser.connect(audioContext.destination);
+
+            // Start playing the audio and the visualization
+            audio.play().then(() => {
+                message.textContent = "Playing: " + files[0].name;
+                draw(analyser, dataArray, bufferLength); // Start the draw loop
+            }).catch(error => {
+                message.textContent = "Error playing audio: " + error.message;
+            });
+        });
+
+        // --- Drawing Loop (The Visualizer Logic) ---
+
+        function draw(analyser, dataArray, bufferLength) {
+            // Request the next frame
+            requestAnimationFrame(() => draw(analyser, dataArray, bufferLength));
+
+            // Get the current frequency data
+            analyser.getByteFrequencyData(dataArray);
+
+            // Clear the canvas
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)'; // Slight transparency for a fade/trail effect
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Center of the canvas
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const baseRadius = 50; // Radius of the inner empty circle
+
+            // Bar properties
+            const barWidth = 3;
+            let hue = 0;
+
+            for (let i = 0; i < bufferLength; i++) {
+                // Scale the volume (0-255) to a visible height
+                const barHeight = dataArray[i] * 1.5;
+
+                // Calculate the angle for the circular arrangement
+                const angle = i * (Math.PI * 2) / bufferLength; // 2*PI is 360 degrees in radians
+
+                // Convert polar coordinates to Cartesian (X, Y)
+                // Start X/Y on the base circle
+                const x1 = centerX + baseRadius * Math.cos(angle);
+                const y1 = centerY + baseRadius * Math.sin(angle);
+
+                // End X/Y at the tip of the bar
+                const x2 = centerX + (baseRadius + barHeight) * Math.cos(angle);
+                const y2 = centerY + (baseRadius + barHeight) * Math.sin(angle);
+                
+                // Color based on frequency/index (i)
+                hue = (i * 360 / bufferLength + 180) % 360; 
+                ctx.strokeStyle = `hsl(${hue}, 100%, 70%)`;
+                ctx.lineWidth = barWidth;
+
+                // Draw the bar line
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+            }
+        }
+    </script>
+
+</body>
+</html>
